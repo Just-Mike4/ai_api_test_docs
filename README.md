@@ -13,6 +13,7 @@ pip install ai_api_test_docs
 ai_api_test_docs
 ```
 Follow the prompts to select a project folder and generate API tests or documentation.
+**NOTE:** Answer via options don't type in full
 
 To delete your stored Gemini API key:
 ```sh
