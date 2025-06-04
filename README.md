@@ -53,3 +53,9 @@ ai_api_test_docs delete_key
 - Google Gemini API key (prompted automatically on first use)
 
 > **Note:** This tool uses AI to generate tests and documentation. AI-generated content may contain mistakes or inaccuracies. Always **review and verify** the output before using it in production.
+
+> **Function/Class/Module Description:**  
+> Performs the specified operations as described in the implementation.
+>
+> **Author:** Ezeana Micheal  
+> **Note:** This tool and documentation was created by Ezeana Micheal.
