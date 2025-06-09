@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="ai_api_test_docs",
-    version="0.1.2",
+    version="0.1.4",
     description="AI-powered API test and documentation generator using Gemini",
     long_description=long_description,
     long_description_content_type="text/markdown",
