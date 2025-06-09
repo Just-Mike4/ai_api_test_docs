@@ -9,10 +9,6 @@ import sys
 ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
 
 model = None
-generation_config = {
-    "temperature": 1.5,
-    "top_p": 0.70,
-    "top_k": 30}
 
 def ensure_api_key():
     """Ensure Gemini API key is set, prompt and store if missing."""
@@ -292,8 +288,7 @@ def main():
     
     api_key = ensure_api_key()
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('models/gemini-2.5-flash-preview-05-20', 
-                                  generation_config=generation_config)
+    model = genai.GenerativeModel('models/gemini-2.5-flash-preview-05-20')
 
     # Load environment variables
     print("API Tools: Test Writer or Documentation Generator")
