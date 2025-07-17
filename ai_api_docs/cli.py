@@ -34,8 +34,6 @@ def delete_api_key():
     else:
         print("No API key found to delete.")
 
-
-
 def list_folders():
     """List directories and let user select one"""
     folders = [f for f in os.listdir('.') if os.path.isdir(f) and not f.startswith('.')]
@@ -74,10 +72,9 @@ def is_text_file(filepath):
     
     return False
 
-def scan_project(folder_path, max_files=50, max_lines=200):
-    """Scan project files and create context summary"""
-    project_context = []
-    file_count = 0
+def scan_entire_project(folder_path):
+    """Scan entire project without truncation, return list of file contents with metadata"""
+    project_files = []
     
     # Prioritize key directories
     priority_dirs = ['app', 'src', 'lib', 'api', 'routes', 'controllers', 'views', 'test']
@@ -97,9 +94,6 @@ def scan_project(folder_path, max_files=50, max_lines=200):
                 break
         
         for file in files:
-            if file_count >= max_files:
-                break
-                
             file_path = os.path.join(root, file)
             rel_path = os.path.relpath(file_path, folder_path)
             
@@ -116,60 +110,62 @@ def scan_project(folder_path, max_files=50, max_lines=200):
             
             try:
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = []
-                    for i, line in enumerate(f):
-                        if i >= max_lines:
-                            break
-                        content.append(line)
-                    file_content = ''.join(content)
+                    file_content = f.read()
                 
-                # Add to context with priority
-                project_context.append({
+                # Add to context with metadata
+                project_files.append({
                     'priority': file_priority,
-                    'content': f"## File: {rel_path}\n{file_content}\n"
+                    'rel_path': rel_path,
+                    'content': file_content
                 })
-                file_count += 1
             except Exception as e:
                 print(f"Could not read {file_path}: {str(e)}")
     
     # Sort by priority (highest first)
-    project_context.sort(key=lambda x: x['priority'], reverse=True)
+    project_files.sort(key=lambda x: x['priority'], reverse=True)
     
-    # Create context string
-    context_str = "\n".join([item['content'] for item in project_context])
-    
-    # Summarize if too long
-    if len(context_str) > 20000:
-        print("Project context is large, summarizing with AI...")
-        context_str = summarize_context(context_str)
-    
-    return context_str
+    return project_files
 
-def summarize_context(context_str):
-    """Summarize large project context with AI"""
-    prompt = textwrap.dedent(f"""
-    You are an expert code analyzer. Summarize this project structure and codebase 
-    focusing on key aspects for API documentation and test generation:
+def process_in_batches(project_files, processing_function, tech_stack, max_batch_chars=100000):
+    """Process files in batches to stay within token limits"""
+    current_batch = []
+    current_batch_size = 0
+    results = []
     
-    - Application entry points
-    - Routing configuration
-    - Controller/View logic
-    - Database models
-    - Authentication mechanisms
-    - Key dependencies
+    for file_info in project_files:
+        file_size = len(file_info['content'])
+        
+        # If adding this file would exceed batch size, process current batch first
+        if current_batch_size + file_size > max_batch_chars and current_batch:
+            context_str = "\n".join(
+                f"## File: {item['rel_path']}\n{item['content']}\n"
+                for item in current_batch
+            )
+            results.append(processing_function(context_str, tech_stack))
+            current_batch = []
+            current_batch_size = 0
+        
+        current_batch.append(file_info)
+        current_batch_size += file_size
     
-    Be concise but preserve critical details about API endpoints, their parameters, 
-    and expected behaviors.
+    # Process any remaining files in the last batch
+    if current_batch:
+        context_str = "\n".join(
+            f"## File: {item['rel_path']}\n{item['content']}\n"
+            for item in current_batch
+        )
+        results.append(processing_function(context_str, tech_stack))
     
-    Project context:
-    {context_str[:30000]}  # Truncate to avoid token limits
-    """)
-    
-    response = model.generate_content(prompt)
-    return response.text
+    return "\n\n".join(results)
 
-def ai_suggest_framework(context_str):
-    """Detect framework using AI analysis"""
+def ai_suggest_framework(project_files):
+    """Detect framework using AI analysis with batched processing"""
+    # Use first batch for framework detection (most important files)
+    context_str = "\n".join(
+        f"## File: {item['rel_path']}\n{item['content']}\n"
+        for item in project_files[:20]  # Use top 20 files for framework detection
+    )
+    
     prompt = textwrap.dedent(f"""
     Analyze the following project structure and codebase to determine the:
     1. Programming language
@@ -187,6 +183,7 @@ def ai_suggest_framework(context_str):
     
     response = model.generate_content(prompt)
     return parse_ai_response(response.text)
+
 
 def parse_ai_response(response_text):
     """Parse AI response into structured data"""
@@ -210,8 +207,17 @@ def parse_ai_response(response_text):
     
     return result
 
-def generate_api_tests(context_str, tech_stack):
-    """Generate API tests using AI with project context"""
+
+def generate_api_tests_batched(project_files, tech_stack):
+    """Generate API tests using AI with batched project context"""
+    return process_in_batches(
+        project_files,
+        lambda context, ts: generate_api_tests_single(context, ts),
+        tech_stack
+    )
+
+def generate_api_tests_single(context_str, tech_stack):
+    """Generate API tests for a single batch"""
     prompt = textwrap.dedent(f"""
     You are an expert QA engineer. Generate comprehensive API tests for the project below.
     
@@ -221,7 +227,7 @@ def generate_api_tests(context_str, tech_stack):
     - Libraries: {', '.join(tech_stack['libraries'])}
     
     Requirements:
-    1. Create tests for ALL API endpoints found in the code
+    1. Create tests for API endpoints found in this batch
     2. Cover success and error cases
     3. Include authentication tests where applicable
     4. Use appropriate testing libraries for the tech stack
@@ -232,42 +238,160 @@ def generate_api_tests(context_str, tech_stack):
     Project Context:
     {context_str}
     
-    Output ONLY the test code without any explanations or markdown formatting. (do NOT include ```python or ```).
+    Output ONLY the test code without any explanations or markdown formatting.
     """)
     
     response = model.generate_content(prompt)
     return response.text
 
-def generate_api_docs(context_str, tech_stack):
-    """Generate API documentation using AI with project context"""
+def generate_api_docs_batched(project_files, tech_stack):
+    """Generate API docs using AI with batched project context"""
+    return process_in_batches(
+        project_files,
+        lambda context, ts: generate_api_docs_single(context, ts),
+        tech_stack
+    )
+
+def generate_api_docs_single(context_str, tech_stack):
+    """Generate API docs for a single batch"""
     prompt = textwrap.dedent(f"""
-    You are an expert technical writer. Generate comprehensive API documentation for the project below.
+    You are an API documentation specialist. Generate **strictly accurate Markdown documentation** using ONLY the provided context. 
+    Follow these rules absolutely:
+    1. **NEVER invent endpoints, parameters, or codes** - use ONLY what exists in context
+    2. **Extract request/response bodies VERBATIM** from context examples where available
+    3. **Reject defaults** - if context doesn't specify "required", omit it; if no examples exist, omit sections
+
+    ### Anti-Hallucination Protocol:
+    - For response examples: **ONLY use hardcoded strings** found in context (search for JSON blocks, test fixtures, examples)
+    - If status codes aren't explicitly defined in context: **DO NOT document them**
+    - When documenting parameters: **Write "Not documented in context"** for missing attributes
+
+    ### Project Context:
+    {context_str}
+
+    ### Tech Stack:
+    | Component       | Value                          |
+    |-----------------|--------------------------------|
+    | Language        | {tech_stack['language']}       |
+    | Framework       | {tech_stack['framework']}      | 
+    | Libraries       | {', '.join(tech_stack['libraries'])} |
+
+    ### Required Documentation Structure:
+    ## Table of Contents
+    <!-- Generated from endpoint paths in context -->
+
+    ## Authentication
+    <!-- ONLY if auth mechanisms are explicitly defined -->
+
+    ## Endpoints
+    ### `[HTTP Method] [Full Path]`
+    **Description**  
+    <!-- Extract from route comments -->
+
+    **Parameters**  
+    | Type   | Name     | Data Type | Required | Constraints |
+    |--------|----------|-----------|----------|-------------|
+    <!-- Path/query/header params ONLY -->
+
+    **Request Body**  
+    ```json
+    EXACTLY ONE OF:
+    a) Hardcoded example from context OR
+    b) Structure from class definitions (if no examples)
+    ```
+
+    **Responses**  
+    `[STATUS CODE] [Description]`  
+    ```json
+    // MUST use ACTUAL response strings from:
+    // - Test fixtures
+    // - Example responses
+    // - Serializer definitions
+    // If none exist: OMIT ENTIRE BLOCK
+    ```
+
+    **Auth**  
+    <!-- "None" if not required -->
+    """)
     
-    Project Tech Stack:
+    response = model.generate_content(prompt)
+    return response.text
+
+def generate_security_audit_batched(project_files, tech_stack):
+    """Generate security audit with batched project context"""
+    return process_in_batches(
+        project_files,
+        lambda context, ts: generate_security_audit_single(context, ts),
+        tech_stack
+    )
+
+def generate_security_audit_single(context_str, tech_stack):
+    """Generate security audit for a single batch"""
+    prompt = textwrap.dedent(f"""
+    You are a cybersecurity expert and backend deployment specialist. Perform a security audit and deployment review based on this project batch.
+
+    ### Project Tech Stack:
     - Language: {tech_stack['language']}
     - Framework: {tech_stack['framework']}
     - Libraries: {', '.join(tech_stack['libraries'])}
-    
-    Requirements:
-    1. Document ALL API endpoints
-    2. For each endpoint:
-       - HTTP method and path
-       - Description
-       - Parameters (query, path, body)
-       - Request example -json
-       - Response example (success and error)-json
-       - Authentication requirements
-    3. Include a table of contents
-    4. Add sections for:
-       - Authentication
-       - Error codes
-       - Rate limiting
-       - Sample usage
-    
+
+    ### Security Audit Requirements:
+    1. **Security Flaws**:
+      - Scan for OWASP Top 10 vulnerabilities
+      - Identify authentication/authorization weaknesses
+      - Detect insecure dependencies
+      - Check for sensitive data exposure
+      - Analyze error handling for information leakage
+
+    2. **Logic Gaps**:
+      - Review business logic vulnerabilities
+      - Identify potential race conditions
+      - Check for insufficient validation
+      - Analyze database query safety
+
+    3. **Best Practices**:
+      - Rate limiting implementation
+      - Input validation strategies
+      - Secure logging practices
+      - Session management security
+
+    ### Deployment Advisor Requirements:
+    1. **Server Configuration**:
+      - Optimal server hardening techniques
+      - Security headers recommendations
+      - TLS/SSL configuration best practices
+
+    2. **Cloud Setup**:
+      - Secure cloud architecture patterns
+      - Network segmentation advice
+      - WAF configuration recommendations
+
+    3. **Environment Management**:
+      - Secrets handling strategies
+      - Environment variable security
+      - Configuration management
+
+    4. **CI/CD Security**:
+      - Secure pipeline configuration
+      - Automated security scanning
+      - GitHub Actions security templates
+
+    5. **Compliance Tools**:
+      - OWASP ZAP configuration
+      - SAST/DAST tool recommendations
+      - Dependency scanning tools
+
+    ### Output Requirements:
+    - Prioritize findings by severity (Critical, High, Medium, Low)
+    - Provide specific code references where vulnerabilities exist
+    - Include remediation steps for each finding
+    - Generate actionable deployment checklists
+    - Suggest framework-specific security enhancements
+
     Project Context:
     {context_str}
-    
-    Output in Markdown format without any additional explanations.
+
+    Output format: Comprehensive Markdown report for this batch
     """)
     
     response = model.generate_content(prompt)
@@ -291,25 +415,26 @@ def main():
     model = genai.GenerativeModel('models/gemini-2.5-flash-preview-05-20')
 
     # Load environment variables
-    print("API Tools: Test Writer or Documentation Generator")
-    print("a. Test Writer\nb. API Documentation")
+    print("API Tools: Select an option")
+    print("a. Test Writer\nb. API Documentation\nc. CyberBackend Security Advisor")
     choice = input("User input: ").strip().lower()
     
-    if choice not in ('a', 'b'):
-        print("Invalid choice. Please select 'a' or 'b'")
+    if choice not in ('a', 'b', 'c'):
+        print("Invalid choice. Please select 'a', 'b', or 'c'")
         return
     
     # Select project folder
     folder_name = list_folders()
     folder_path = os.path.abspath(folder_name)
     
-    # Scan project
-    print(f"Scanning {folder_name}...")
-    context = scan_project(folder_path)
+    # Scan entire project
+    print(f"Scanning entire {folder_name} codebase...")
+    project_files = scan_entire_project(folder_path)
+    print(f"Found {len(project_files)} files")
     
-    # Detect tech stack
+    # Detect tech stack using highest priority files
     print("Analyzing project structure...")
-    tech_stack = ai_suggest_framework(context)
+    tech_stack = ai_suggest_framework(project_files)
     print(f"\nDetected Tech Stack:")
     print(f"Language: {tech_stack['language']}")
     print(f"Framework: {tech_stack['framework']}")
@@ -318,10 +443,16 @@ def main():
     # Generate content based on user choice
     if choice == 'a':
         print("Generating API tests...")
-        tests = generate_api_tests(context, tech_stack)
+        tests = generate_api_tests_batched(project_files, tech_stack)
         write_file(folder_path, "test_apis.py", tests)
-    else:
+    elif choice == 'b':
         print("Generating API documentation...")
-        docs = generate_api_docs(context, tech_stack)
+        docs = generate_api_docs_batched(project_files, tech_stack)
         write_file(folder_path, "README.md", docs)
+    elif choice == 'c':
+        print("Generating security audit and deployment recommendations...")
+        audit = generate_security_audit_batched(project_files, tech_stack)
+        write_file(folder_path, "SECURITY_REVIEW.md", audit)
 
+if __name__ == "__main__":
+    main()
