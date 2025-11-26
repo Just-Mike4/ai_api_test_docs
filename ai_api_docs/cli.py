@@ -184,7 +184,6 @@ def ai_suggest_framework(project_files):
     response = model.generate_content(prompt)
     return parse_ai_response(response.text)
 
-
 def parse_ai_response(response_text):
     """Parse AI response into structured data"""
     result = {
@@ -206,7 +205,6 @@ def parse_ai_response(response_text):
         pass
     
     return result
-
 
 def generate_api_tests_batched(project_files, tech_stack):
     """Generate API tests using AI with batched project context"""
@@ -265,6 +263,11 @@ def generate_api_docs_single(context_str, tech_stack):
     - For response examples: **ONLY use hardcoded strings** found in context (search for JSON blocks, test fixtures, examples)
     - If status codes aren't explicitly defined in context: **DO NOT document them**
     - When documenting parameters: **Write "Not documented in context"** for missing attributes
+
+    ### Deduction Instructions:
+    - **Deduce endpoints** by analyzing route definitions, decorators, function names, or URL patterns in the code (e.g., @app.route, app.get, etc.).
+    - **Deduce request bodies** from model definitions, schema classes, or example inputs in tests/code comments.
+    - **Deduce response bodies** from return statements, serializer outputs, or hardcoded JSON in the code.
 
     ### Project Context:
     {context_str}
@@ -397,6 +400,53 @@ def generate_security_audit_single(context_str, tech_stack):
     response = model.generate_content(prompt)
     return response.text
 
+# NEW FUNCTION: Custom README Generator
+def generate_readme(project_files, tech_stack):
+    """Generate README using AI with custom prompt and project context"""
+    # Create context from top files (prioritized)
+    context_str = "\n".join(
+        f"## File: {item['rel_path']}\n{item['content']}\n"
+        for item in project_files[:30]  # Use top 30 files for README
+    )
+    
+    prompt = textwrap.dedent(f"""
+    You are a documentation expert creating a comprehensive README.md file.
+    Follow these guidelines:
+    
+    1. Create a professional, well-structured README
+    2. Include all standard sections (Overview, Installation, Usage, etc.)
+    3. Use appropriate formatting for the tech stack
+    4. Follow best practices for documentation
+    5. Incorporate the user's specific requirements below
+    
+    ### Tech Stack:
+    - Language: {tech_stack['language']}
+    - Framework: {tech_stack['framework']}
+    - Libraries: {', '.join(tech_stack['libraries'])}
+    
+    
+    ### Project Context:
+    {context_str}
+    
+    ### Required Sections:
+    # Project Title
+    ## File structure summary
+    ## Overview
+    ## Features
+    ## Installation
+    ## Usage
+    ## Configuration
+    ## API Documentation
+    ## Contributing
+    ## License
+    
+    
+    Output: ONLY the README content in Markdown format
+    """)
+    
+    response = model.generate_content(prompt)
+    return response.text
+
 def write_file(folder_path, filename, content):
     """Write content to file in project directory"""
     file_path = os.path.join(folder_path, filename)
@@ -412,15 +462,15 @@ def main():
     
     api_key = ensure_api_key()
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('models/gemini-2.5-flash-preview-05-20')
+    model = genai.GenerativeModel('models/gemini-2.5-flash')
 
     # Load environment variables
-    print("API Tools: Select an option")
-    print("a. Test Writer\nb. API Documentation\nc. CyberBackend Security Advisor")
+    print("Project Tools: Select an option")
+    print("a. API Test Writer\nb. API Documentation Generator\nc. CyberBackend Security Advisor\nd. README Generator")
     choice = input("User input: ").strip().lower()
     
-    if choice not in ('a', 'b', 'c'):
-        print("Invalid choice. Please select 'a', 'b', or 'c'")
+    if choice not in ('a', 'b', 'c', 'd'):
+        print("Invalid choice. Please select a valid option")
         return
     
     # Select project folder
@@ -448,11 +498,15 @@ def main():
     elif choice == 'b':
         print("Generating API documentation...")
         docs = generate_api_docs_batched(project_files, tech_stack)
-        write_file(folder_path, "README.md", docs)
+        write_file(folder_path, "API_DOCUMENTATION.md", docs)
     elif choice == 'c':
         print("Generating security audit and deployment recommendations...")
         audit = generate_security_audit_batched(project_files, tech_stack)
         write_file(folder_path, "SECURITY_REVIEW.md", audit)
+    elif choice == 'd':
+        print("Generating README with default instructions...")
+        readme_content = generate_readme(project_files, tech_stack)
+        write_file(folder_path, "AI-README.md", readme_content)
 
 if __name__ == "__main__":
     main()
