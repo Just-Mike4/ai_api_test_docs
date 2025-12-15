@@ -1,6 +1,6 @@
 # ai_api_test_docs
 
-AI-powered API test and documentation generator using Google Gemini.
+AI-powered project tools for API testing, documentation, security auditing, and README generation using Google Gemini.
 
 ## Installation
 
@@ -33,9 +33,11 @@ ai_api_test_docs
    - Select the **target project folder**.
    - Provide your **Google Gemini API key** when prompted.
    - Choose between generating:
-     - API documentation
-     - API test scripts
-   - Selections are made via **numbered or lettered options** (e.g., `1`, `2`, etc.), **not by typing full names**.
+     - a. API Test Writer
+     - b. API Documentation Generator
+     - c. CyberBackend Security Advisor
+     - d. README Generator
+   - Selections are made via **lettered options** (e.g., `a`, `b`, `c`, `d`).
 
 5. Let the tool generate the content for you. Output files will be saved in the selected project folder.
 
@@ -52,7 +54,7 @@ ai_api_test_docs delete_key
 - Python 3.9 or higher
 - Google Gemini API key (prompted automatically on first use)
 
-> **Note:** This tool uses AI to generate tests and documentation. AI-generated content may contain mistakes or inaccuracies. Always **review and verify** the output before using it in production.
+> **Note:** This tool uses AI to generate tests, documentation, security audits, and READMEs. AI-generated content may contain mistakes or inaccuracies. Always **review and verify** the output before using it in production.
 
 > **Function/Class/Module Description:**  
 > Performs the specified operations as described in the implementation.
